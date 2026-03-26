@@ -1,7 +1,5 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Loader2, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,17 +9,19 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { BountySubmissionType } from "@/lib/graphql/generated";
+import { Textarea } from "@/components/ui/textarea";
+import { useSubmissionDraft } from "@/hooks/use-submission-draft";
 import {
-  useSubmitToBounty,
-  useReviewSubmission,
   useMarkSubmissionPaid,
+  useReviewSubmission,
+  useSubmitToBounty,
 } from "@/hooks/use-submission-mutations";
 import { authClient } from "@/lib/auth-client";
-import { useSubmissionDraft } from "@/hooks/use-submission-draft";
+import { BountySubmissionType } from "@/lib/graphql/generated";
+import { DollarSign, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface ExtendedUser {
   id: string;
@@ -319,6 +319,19 @@ export function BountyDetailSubmissionsCard({
                   <div className="flex items-center gap-2 text-xs text-emerald-400">
                     <DollarSign className="size-3" />
                     Paid on {new Date(submission.paidAt).toLocaleDateString()}
+                  </div>
+                )}
+
+                {submission.rewardTransactionHash && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-gray-400">Transaction:</span>
+                    <TransactionLink
+                      value={submission.rewardTransactionHash}
+                      type="transaction"
+                      maxLength={10}
+                      showCopy={true}
+                      className="text-primary"
+                    />
                   </div>
                 )}
               </div>
