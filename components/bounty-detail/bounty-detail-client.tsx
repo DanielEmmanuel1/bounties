@@ -9,10 +9,14 @@ import { DescriptionCard } from "./bounty-detail-description-card";
 import { BountyDetailSubmissionsCard } from "./bounty-detail-submissions-card";
 import { BountyDetailSkeleton } from "./bounty-detail-bounty-detail-skeleton";
 import { useBountyDetail } from "@/hooks/use-bounty-detail";
+import { EscrowDetailPanel } from "../bounty/escrow-detail-panel";
+import { FeeCalculator } from "../bounty/fee-calculator";
+import { useEscrowPool } from "@/hooks/use-escrow";
 
 export function BountyDetailClient({ bountyId }: { bountyId: string }) {
   const router = useRouter();
   const { data: bounty, isPending, isError, error } = useBountyDetail(bountyId);
+  const { data: pool } = useEscrowPool(bountyId);
 
   if (isPending) return <BountyDetailSkeleton />;
 
@@ -70,6 +74,7 @@ export function BountyDetailClient({ bountyId }: { bountyId: string }) {
       <div className="flex-1 min-w-0 space-y-6">
         <HeaderCard bounty={bounty} />
         <DescriptionCard description={bounty.description} />
+        {pool && <EscrowDetailPanel poolId={bountyId} />}
         <BountyDetailSubmissionsCard bounty={bounty} />
       </div>
 
@@ -77,6 +82,7 @@ export function BountyDetailClient({ bountyId }: { bountyId: string }) {
       <aside className="w-full lg:w-72 shrink-0">
         <div className="lg:sticky lg:top-24 space-y-4">
           <SidebarCTA bounty={bounty} />
+          <FeeCalculator />
         </div>
       </aside>
 
