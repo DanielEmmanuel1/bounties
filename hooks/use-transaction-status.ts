@@ -74,6 +74,8 @@ export function useTransactionStatus() {
         try {
           const result = await server.getTransaction(hash);
 
+          if (currentHashRef.current !== hash) return;
+
           if (result.status === rpc.Api.GetTransactionStatus.SUCCESS) {
             clearPolling();
             const txLedger = result.ledger;
@@ -98,6 +100,10 @@ export function useTransactionStatus() {
               finalityAttempts++;
               try {
                 const latest = await finalityServer.getLatestLedger();
+                if (currentHashRef.current !== hash) {
+                  clearFinalityPolling();
+                  return;
+                }
                 if (latest.sequence >= txLedger + FINALITY_LEDGERS) {
                   clearFinalityPolling();
                   setState((prev) =>
@@ -113,16 +119,20 @@ export function useTransactionStatus() {
               if (finalityAttempts >= MAX_FINALITY_ATTEMPTS) {
                 clearFinalityPolling();
                 setState((prev) =>
-                  prev.hash === hash ? { ...prev, status: "finalized" } : prev,
+                  prev.hash === hash
+                    ? { ...prev, errorMessage: "Finality check timed out." }
+                    : prev,
                 );
               }
             };
 
             await checkFinality();
-            finalityTimerRef.current = setInterval(
-              checkFinality,
-              POLL_INTERVAL_MS,
-            );
+            if (currentHashRef.current === hash) {
+              finalityTimerRef.current = setInterval(
+                checkFinality,
+                POLL_INTERVAL_MS,
+              );
+            }
             return;
           }
 
@@ -176,7 +186,9 @@ export function useTransactionStatus() {
       };
 
       await check();
-      timerRef.current = setInterval(check, POLL_INTERVAL_MS);
+      if (currentHashRef.current === hash && timerRef.current === null) {
+        timerRef.current = setInterval(check, POLL_INTERVAL_MS);
+      }
     },
     [clearPolling, clearFinalityPolling],
   );
