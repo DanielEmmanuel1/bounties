@@ -24,21 +24,6 @@ import { useMemo } from "react";
 import { useCompletionHistory } from "@/hooks/use-reputation";
 import { ContributorReputationWithMetrics } from "@/types/reputation";
 
-// Mock metrics data for testing until backend supports full metrics payload
-const getMockMetrics = (): ContributorReputationWithMetrics["metrics"] => ({
-  xp: 2500,
-  skills: [
-    { name: "Frontend", level: 75 },
-    { name: "Backend", level: 60 },
-    { name: "Documentation", level: 40 },
-  ],
-  contributionHistory: {
-    totalContributions: 0,
-    contributions: [],
-    streak: { current: 0, longest: 0 },
-  },
-});
-
 export default function ProfilePage() {
   const params = useParams();
   const userId = params.userId as string;
@@ -270,12 +255,13 @@ export default function ProfilePage() {
                   reputation={reputation as ContributorReputationWithMetrics}
                 />
               ) : (
-                <ReputationDashboard
-                  reputation={{
-                    ...reputation,
-                    metrics: getMockMetrics(),
-                  }}
-                />
+                <div className="p-8 border rounded-lg text-center text-muted-foreground bg-secondary/5">
+                  <p>Reputation metrics are not available yet.</p>
+                  <p className="text-sm mt-2">
+                    This feature will be enabled when the backend supports
+                    extended metrics.
+                  </p>
+                </div>
               )}
             </TabsContent>
 
