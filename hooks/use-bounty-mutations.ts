@@ -1,98 +1,304 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type MutateOptions } from "@tanstack/react-query";
 import {
-    bountiesApi,
-    type Bounty,
-    type CreateBountyInput,
-    type UpdateBountyInput,
-    type PaginatedResponse,
-} from '@/lib/api';
-import { bountyKeys } from './use-bounties';
+  useCreateBountyMutation,
+  useUpdateBountyMutation,
+  useDeleteBountyMutation,
+  type CreateBountyInput,
+  type UpdateBountyInput,
+  type BountyQuery,
+  type BountiesQuery,
+  type CreateBountyMutation,
+  type UpdateBountyMutation,
+  type DeleteBountyMutation,
+  type CreateBountyMutationVariables,
+  type UpdateBountyMutationVariables,
+  type DeleteBountyMutationVariables,
+} from "@/lib/graphql/generated";
+import { bountyKeys } from "@/lib/query/query-keys";
 
+/**
+ * Type aliases for cleaner mutation option signatures
+ */
+type CreateBountyMutateOptions = MutateOptions<
+  CreateBountyMutation,
+  unknown,
+  CreateBountyMutationVariables,
+  unknown
+>;
+
+type UpdateBountyMutateOptions = MutateOptions<
+  UpdateBountyMutation,
+  unknown,
+  UpdateBountyMutationVariables,
+  unknown
+>;
+
+type DeleteBountyMutateOptions = MutateOptions<
+  DeleteBountyMutation,
+  unknown,
+  DeleteBountyMutationVariables,
+  unknown
+>;
+
+/**
+ * Hook to create a new bounty
+ * Handles GraphQL mutation and cache invalidation for bounty lists
+ *
+ * @returns Mutation object with mutate/mutateAsync methods
+ * @example
+ * const { mutate, isPending } = useCreateBounty();
+ * mutate({ title: "Fix bug", description: "...", ... });
+ */
 export function useCreateBounty() {
-    const queryClient = useQueryClient();
+  const queryClient = useQueryClient();
+  const mutation = useCreateBountyMutation({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: bountyKeys.lists() });
+    },
+  });
 
-    return useMutation({
-        mutationFn: (data: CreateBountyInput) => bountiesApi.create(data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: bountyKeys.lists() });
-        },
-    });
+  return {
+    ...mutation,
+    mutate: (input: CreateBountyInput, options?: CreateBountyMutateOptions) =>
+      mutation.mutate({ input }, options),
+    mutateAsync: (
+      input: CreateBountyInput,
+      options?: CreateBountyMutateOptions,
+    ) => mutation.mutateAsync({ input }, options),
+  };
 }
 
+/**
+ * Hook to update an existing bounty
+ * Implements optimistic updates with rollback on error
+ * Filters undefined/null values to send only changed fields
+ *
+ * @returns Mutation object with mutate/mutateAsync methods
+ * @example
+ * const { mutate } = useUpdateBounty();
+ * mutate({ id: "123", data: { status: "CLOSED" } });
+ */
 export function useUpdateBounty() {
-    const queryClient = useQueryClient();
+  const queryClient = useQueryClient();
+  const mutation = useUpdateBountyMutation({
+    onMutate: async (variables) => {
+      const { id } = variables.input;
+      await queryClient.cancelQueries({ queryKey: bountyKeys.detail(id) });
+      const previous = queryClient.getQueryData<BountyQuery>(
+        bountyKeys.detail(id),
+      );
 
-    return useMutation({
-        mutationFn: ({ id, data }: { id: string; data: UpdateBountyInput }) =>
-            bountiesApi.update(id, data),
-        onMutate: async ({ id, data }) => {
-            await queryClient.cancelQueries({ queryKey: bountyKeys.detail(id) });
-            const previous = queryClient.getQueryData<Bounty>(bountyKeys.detail(id));
+      if (previous?.bounty) {
+        const optimisticInput = Object.fromEntries(
+          Object.entries(variables.input).filter(
+            ([, value]) => value !== undefined && value !== null,
+          ),
+        ) as Partial<BountyQuery["bounty"]>;
 
-            if (previous) {
-                queryClient.setQueryData<Bounty>(bountyKeys.detail(id), {
-                    ...previous,
-                    ...data,
-                    updatedAt: new Date().toISOString(),
-                });
-            }
+        queryClient.setQueryData<BountyQuery>(bountyKeys.detail(id), {
+          ...previous,
+          bounty: {
+            ...previous.bounty,
+            ...optimisticInput,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+      }
 
-            return { previous, id };
-        },
-        onError: (_err, _vars, context) => {
-            if (context?.previous) {
-                queryClient.setQueryData(bountyKeys.detail(context.id), context.previous);
-            }
-        },
-        onSettled: (_data, _err, { id }) => {
-            queryClient.invalidateQueries({ queryKey: bountyKeys.detail(id) });
-            queryClient.invalidateQueries({ queryKey: bountyKeys.lists() });
-        },
-    });
+      return { previous, id };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          bountyKeys.detail(context.id),
+          context.previous,
+        );
+      }
+    },
+    onSettled: (_data, _err, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: bountyKeys.detail(variables.input.id),
+      });
+      queryClient.invalidateQueries({ queryKey: bountyKeys.lists() });
+    },
+  });
+
+  return {
+    ...mutation,
+    mutate: (
+      { id, data }: { id: string; data: Omit<UpdateBountyInput, "id"> },
+      options?: UpdateBountyMutateOptions,
+    ) =>
+      mutation.mutate({ input: { ...data, id } as UpdateBountyInput }, options),
+    mutateAsync: (
+      { id, data }: { id: string; data: Omit<UpdateBountyInput, "id"> },
+      options?: UpdateBountyMutateOptions,
+    ) =>
+      mutation.mutateAsync(
+        { input: { ...data, id } as UpdateBountyInput },
+        options,
+      ),
+  };
 }
 
+/**
+ * Hook to delete a bounty
+ * Removes the bounty from list cache optimistically
+ * Updates total count on deletion
+ *
+ * @returns Mutation object with mutate/mutateAsync methods
+ * @example
+ * const { mutate } = useDeleteBounty();
+ * mutate("bounty-id-123");
+ */
 export function useDeleteBounty() {
-    const queryClient = useQueryClient();
+  const queryClient = useQueryClient();
+  const mutation = useDeleteBountyMutation({
+    onMutate: async (variables) => {
+      const { id } = variables;
+      await queryClient.cancelQueries({ queryKey: bountyKeys.lists() });
 
-    return useMutation({
-        mutationFn: (id: string) => bountiesApi.delete(id),
-        onMutate: async (id) => {
-            await queryClient.cancelQueries({ queryKey: bountyKeys.lists() });
+      const previousLists = queryClient.getQueriesData<BountiesQuery>({
+        queryKey: bountyKeys.lists(),
+      });
 
-            const previousLists = queryClient.getQueriesData<PaginatedResponse<Bounty>>({
-                queryKey: bountyKeys.lists(),
-            });
+      queryClient.setQueriesData<BountiesQuery>(
+        { queryKey: bountyKeys.lists() },
+        (old) =>
+          old
+            ? {
+                ...old,
+                bounties: {
+                  ...old.bounties,
+                  bounties: old.bounties.bounties.filter((b) => b.id !== id),
+                  total: old.bounties.total - 1,
+                },
+              }
+            : old,
+      );
 
-            queryClient.setQueriesData<PaginatedResponse<Bounty>>(
-                { queryKey: bountyKeys.lists() },
-                (old) => old ? {
-                    ...old,
-                    data: old.data.filter((b) => b.id !== id),
-                    pagination: { ...old.pagination, total: old.pagination.total - 1 },
-                } : old
-            );
+      return { previousLists };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previousLists.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: bountyKeys.lists() });
+    },
+  });
 
-            return { previousLists };
-        },
-        onError: (_err, _id, context) => {
-            context?.previousLists.forEach(([key, data]) => {
-                queryClient.setQueryData(key, data);
-            });
-        },
-        onSettled: () => {
-            queryClient.invalidateQueries({ queryKey: bountyKeys.lists() });
-        },
-    });
+  return {
+    ...mutation,
+    mutate: (id: string, options?: DeleteBountyMutateOptions) =>
+      mutation.mutate({ id }, options),
+    mutateAsync: (id: string, options?: DeleteBountyMutateOptions) =>
+      mutation.mutateAsync({ id }, options),
+  };
 }
 
+/**
+ * Hook to claim a bounty
+ * Implemented as updateBounty mutation with status: "IN_PROGRESS"
+ * Awaiting backend implementation of dedicated claimBounty mutation
+ *
+ * @returns Mutation object with mutate/mutateAsync methods
+ * @example
+ * const { mutate } = useClaimBounty();
+ * mutate("bounty-id-123");
+ */
 export function useClaimBounty() {
-    const queryClient = useQueryClient();
+  const queryClient = useQueryClient();
+  // Claim is treated as updating the bounty status to IN_PROGRESS
+  const mutation = useUpdateBountyMutation({
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData<BountyQuery>(
+        bountyKeys.detail(variables.input.id),
+        { bounty: data.updateBounty },
+      );
+      queryClient.invalidateQueries({ queryKey: bountyKeys.lists() });
+    },
+  });
 
-    return useMutation({
-        mutationFn: (id: string) => bountiesApi.claim(id),
-        onSuccess: (data, id) => {
-            queryClient.setQueryData(bountyKeys.detail(id), data);
-            queryClient.invalidateQueries({ queryKey: bountyKeys.lists() });
-        },
-    });
+  return {
+    ...mutation,
+    mutate: (id: string, options?: UpdateBountyMutateOptions) =>
+      mutation.mutate({ input: { id, status: "IN_PROGRESS" } }, options),
+    mutateAsync: (id: string, options?: UpdateBountyMutateOptions) =>
+      mutation.mutateAsync({ input: { id, status: "IN_PROGRESS" } }, options),
+  };
+}
+
+/**
+ * Hook to cancel a bounty and update its status in the registry.
+ * This hook handles the GraphQL status update to "CANCELLED".
+ * Escrow cancellation/refund is handled separately via EscrowService.cancelBounty.
+ *
+ * @returns Mutation object with:
+ *  - cancel: (id: string, reason?: string) => void
+ *  - cancelAsync: (id: string, reason?: string) => Promise<any>
+ *  - isPending: boolean (standard TanStack Query state)
+ *
+ * @example
+ * const { cancel, isPending } = useCancelBounty();
+ * cancel({ id: "123", reason: "Budget changed" });
+ */
+export function useCancelBounty() {
+  const queryClient = useQueryClient();
+
+  const mutation = useUpdateBountyMutation({
+    onMutate: async (variables) => {
+      const { id } = variables.input;
+      await queryClient.cancelQueries({ queryKey: bountyKeys.detail(id) });
+      const previous = queryClient.getQueryData<BountyQuery>(
+        bountyKeys.detail(id),
+      );
+
+      if (previous?.bounty) {
+        queryClient.setQueryData<BountyQuery>(bountyKeys.detail(id), {
+          ...previous,
+          bounty: {
+            ...previous.bounty,
+            status: "CANCELLED",
+            updatedAt: new Date().toISOString(),
+          },
+        });
+      }
+
+      return { previous, id };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          bountyKeys.detail(context.id),
+          context.previous,
+        );
+      }
+    },
+    onSettled: (_data, _err, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: bountyKeys.detail(variables.input.id),
+      });
+      queryClient.invalidateQueries({ queryKey: bountyKeys.lists() });
+    },
+  });
+
+  return {
+    ...mutation,
+    cancel: (
+      { id }: { id: string; reason?: string },
+      options?: UpdateBountyMutateOptions,
+    ) =>
+      // 'reason' is intentionally ignored in the GraphQL mutation because
+      // UpdateBountyInput does not support it. It is consumed by EscrowService.cancelBounty.
+      mutation.mutate({ input: { id, status: "CANCELLED" } }, options),
+    cancelAsync: (
+      { id }: { id: string; reason?: string },
+      options?: UpdateBountyMutateOptions,
+    ) =>
+      // 'reason' is intentionally ignored in the GraphQL mutation because
+      // UpdateBountyInput does not support it. It is consumed by EscrowService.cancelBounty.
+      mutation.mutateAsync({ input: { id, status: "CANCELLED" } }, options),
+  };
 }

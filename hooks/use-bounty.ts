@@ -1,15 +1,25 @@
-import { useQuery } from '@tanstack/react-query';
-import { bountiesApi, type Bounty } from '@/lib/api';
-import { bountyKeys } from './use-bounties';
+import {
+  useBountyQuery,
+  type BountyFieldsFragment,
+} from "@/lib/graphql/generated";
 
 interface UseBountyOptions {
-    enabled?: boolean;
+  enabled?: boolean;
 }
 
+// Reusable hook to fetch a single bounty by ID via GraphQL using the generated useBountyQuery hook.
+// Returns the bounty data typed as BountyFieldsFragment, which includes all relations
+// (organization, project, bountyWindow, submissions). Accepts an optional `enabled` flag
+// for external control over when the query fires, falling back to !!id as the default guard.
+
 export function useBounty(id: string, options?: UseBountyOptions) {
-    return useQuery<Bounty>({
-        queryKey: bountyKeys.detail(id),
-        queryFn: () => bountiesApi.getById(id),
-        enabled: options?.enabled ?? !!id,
-    });
+  const { data, ...rest } = useBountyQuery(
+    { id },
+    { enabled: options?.enabled ?? !!id },
+  );
+
+  return {
+    ...rest,
+    data: data?.bounty as BountyFieldsFragment | undefined,
+  };
 }

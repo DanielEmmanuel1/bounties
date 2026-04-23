@@ -1,9 +1,7 @@
-import { Zap } from "lucide-react";
-import type { Bounty } from "@/lib/api";
-import { DIFFICULTY_CONFIG, STATUS_CONFIG } from "@/lib/bounty-config";
+import { STATUS_CONFIG, TYPE_CONFIG } from "@/lib/bounty-config";
 
-export function StatusBadge({ status }: { status: Bounty["status"] }) {
-  const cfg = STATUS_CONFIG[status];
+export function StatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.COMPLETED;
   return (
     <span
       className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${cfg.className}`}
@@ -14,17 +12,12 @@ export function StatusBadge({ status }: { status: Bounty["status"] }) {
   );
 }
 
-export function DifficultyBadge({
-  difficulty,
-}: {
-  difficulty: NonNullable<Bounty["difficulty"]>;
-}) {
-  const cfg = DIFFICULTY_CONFIG[difficulty];
+export function TypeBadge({ type }: { type: string }) {
+  const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.FIXED_PRICE;
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium capitalize ${cfg.className}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${cfg.className}`}
     >
-      <Zap className="size-3" />
       {cfg.label}
     </span>
   );

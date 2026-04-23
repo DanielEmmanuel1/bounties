@@ -1,22 +1,31 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  ClaimModelInfo,
-  MobileCTA,
-  SidebarCTA,
-} from "./bounty-detail-sidebar-cta";
-import { RequirementsCard, ScopeCard } from "./bounty-detail-requirements-card";
+import { MobileCTA, SidebarCTA } from "./bounty-detail-sidebar-cta";
 import { HeaderCard } from "./bounty-detail-header-card";
 import { DescriptionCard } from "./bounty-detail-description-card";
+import { BountyDetailSubmissionsCard } from "./bounty-detail-submissions-card";
 import { BountyDetailSkeleton } from "./bounty-detail-bounty-detail-skeleton";
-import { useBountyDetail } from "@/hooks/Use-bounty-detail";
+import { useBountyDetail } from "@/hooks/use-bounty-detail";
+import { EscrowDetailPanel } from "../bounty/escrow-detail-panel";
+import { RefundStatusTracker } from "../bounty/refund-status";
+import { FeeCalculator } from "../bounty/fee-calculator";
+import { useEscrowPool } from "@/hooks/use-escrow";
+import type { CancellationRecord } from "@/types/escrow";
 
 export function BountyDetailClient({ bountyId }: { bountyId: string }) {
   const router = useRouter();
   const { data: bounty, isPending, isError, error } = useBountyDetail(bountyId);
+  const { data: pool } = useEscrowPool(bountyId);
+  const [cancellationRecord, setCancellationRecord] =
+    useState<CancellationRecord | null>(null);
+
+  const handleCancelled = useCallback((record: CancellationRecord) => {
+    setCancellationRecord(record);
+  }, []);
 
   if (isPending) return <BountyDetailSkeleton />;
 
@@ -68,28 +77,30 @@ export function BountyDetailClient({ bountyId }: { bountyId: string }) {
     );
   }
 
+  const isCancelled =
+    bounty.status === "CANCELLED" || cancellationRecord !== null;
+
   return (
     <div className="flex flex-col lg:flex-row gap-10">
       {/* Main content */}
       <div className="flex-1 min-w-0 space-y-6">
         <HeaderCard bounty={bounty} />
         <DescriptionCard description={bounty.description} />
-        {bounty.requirements && bounty.requirements.length > 0 && (
-          <RequirementsCard requirements={bounty.requirements} />
-        )}
-        {bounty.scope && <ScopeCard scope={bounty.scope} />}
+        {!isCancelled && pool && <EscrowDetailPanel poolId={bountyId} />}
+        <RefundStatusTracker bountyId={bountyId} isCancelled={isCancelled} />
+        <BountyDetailSubmissionsCard bounty={bounty} />
       </div>
 
       {/* Sidebar */}
       <aside className="w-full lg:w-72 shrink-0">
         <div className="lg:sticky lg:top-24 space-y-4">
-          <SidebarCTA bounty={bounty} />
-          <ClaimModelInfo claimingModel={bounty.claimingModel} />
+          <SidebarCTA bounty={bounty} onCancelled={handleCancelled} />
+          <FeeCalculator />
         </div>
       </aside>
 
       {/* Mobile sticky CTA */}
-      <MobileCTA bounty={bounty} />
+      <MobileCTA bounty={bounty} onCancelled={handleCancelled} />
     </div>
   );
 }
