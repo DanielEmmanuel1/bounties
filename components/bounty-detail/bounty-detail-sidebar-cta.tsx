@@ -24,7 +24,8 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 
-import { BountyFieldsFragment, useSubmitToBountyMutation } from "@/lib/graphql/generated";
+import { BountyFieldsFragment } from "@/lib/graphql/generated";
+import { useSubmitToBounty } from "@/hooks/use-submission-mutations";
 import { StatusBadge, TypeBadge } from "./bounty-badges";
 import { FcfsClaimButton } from "@/components/bounty/fcfs-claim-button";
 import { ApplicationDialog } from "@/components/bounty/application-dialog";
@@ -39,6 +40,25 @@ import { toast } from "sonner";
  * are accessible without unsafe assertions. */
 type SidebarBounty = BountyFieldsFragment & Partial<Bounty>;
 
+function useApplyToBounty(bounty: BountyFieldsFragment) {
+  const { mutateAsync } = useSubmitToBounty();
+
+  return async ({
+    coverLetter,
+    portfolioUrl,
+  }: {
+    coverLetter: string;
+    portfolioUrl?: string;
+  }): Promise<void> => {
+    await mutateAsync({
+      bountyId: bounty.id,
+      githubPullRequestUrl: portfolioUrl ?? "",
+      comments: coverLetter,
+    });
+    toast.success("Application submitted successfully!");
+  };
+}
+
 interface SidebarCTAProps {
   bounty: SidebarBounty;
   onCancelled?: (record: CancellationRecord) => void;
@@ -48,7 +68,7 @@ export function SidebarCTA({ bounty, onCancelled }: SidebarCTAProps) {
   const [copied, setCopied] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const { data: session } = authClient.useSession();
-  const submitMutation = useSubmitToBountyMutation();
+  const applyToBounty = useApplyToBounty(bounty);
 
   const {
     cancelDialogOpen,
@@ -178,21 +198,7 @@ export function SidebarCTA({ bounty, onCancelled }: SidebarCTAProps) {
         ) : canAct ? (
           <ApplicationDialog
             bountyTitle={bounty.title}
-            onApply={async ({ coverLetter, portfolioUrl }) => {
-              try {
-                await submitMutation.mutateAsync({
-                  input: {
-                    bountyId: bounty.id,
-                    githubPullRequestUrl: portfolioUrl ?? bounty.githubIssueUrl,
-                    comments: coverLetter,
-                  },
-                });
-                toast.success("Application submitted successfully!");
-                return true;
-              } catch {
-                return false;
-              }
-            }}
+            onApply={applyToBounty}
             trigger={
               <Button
                 data-testid="apply-to-bounty-btn"
@@ -339,7 +345,7 @@ interface MobileCTAProps {
 
 export function MobileCTA({ bounty, onCancelled }: MobileCTAProps) {
   const { data: session } = authClient.useSession();
-  const submitMutation = useSubmitToBountyMutation();
+  const applyToBounty = useApplyToBounty(bounty);
 
   const {
     cancelDialogOpen,
@@ -378,21 +384,7 @@ export function MobileCTA({ bounty, onCancelled }: MobileCTAProps) {
         <div className="flex gap-2">
           <ApplicationDialog
             bountyTitle={bounty.title}
-            onApply={async ({ coverLetter, portfolioUrl }) => {
-              try {
-                await submitMutation.mutateAsync({
-                  input: {
-                    bountyId: bounty.id,
-                    githubPullRequestUrl: portfolioUrl ?? bounty.githubIssueUrl,
-                    comments: coverLetter,
-                  },
-                });
-                toast.success("Application submitted successfully!");
-                return true;
-              } catch {
-                return false;
-              }
-            }}
+            onApply={applyToBounty}
             trigger={
               <Button
                 data-testid="apply-to-bounty-btn-mobile"

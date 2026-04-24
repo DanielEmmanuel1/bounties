@@ -15,7 +15,7 @@
  *   - Timing is handled with await expect(...).toBeVisible() / toBeHidden()
  *     — no arbitrary sleeps.
  *   - The GraphQL mock dispatches on operationName, so adding new queries
- *     never breaks the default `{}` catch-all.
+ *     breaks loudly (default branch aborts the request).
  */
 
 import { test, expect, type Page } from "@playwright/test";
@@ -93,7 +93,7 @@ async function setupMocks(page: Page) {
         operationName?: string;
       };
     } catch {
-      // fall through to default
+      // fall through to abort
     }
 
     switch (body.operationName) {
@@ -176,16 +176,14 @@ async function setupMocks(page: Page) {
         return;
 
       default:
-        // Catch-all: empty success for any unrecognised operation.
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ data: null }),
-        });
+        // Fail loudly so unrecognised operations surface immediately in CI
+        // rather than silently returning null and causing cryptic downstream errors.
+        await route.abort("failed");
     }
   });
 
-  // Inject a fake session cookie so server-side auth checks pass
+  // Inject a fake session cookie so server-side auth checks pass.
+  // The cookie name must match better-auth's cookiePrefix ("boundless_auth") + ".session_token".
   await page.context().addCookies([
     {
       name: "boundless_auth.session_token",
@@ -215,9 +213,7 @@ test.describe("Bounty application flow", () => {
   }) => {
     await page.goto("/bounty");
 
-    await expect(
-      page.getByRole("heading", { name: /Explore/i }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Explore/i })).toBeVisible();
 
     await expect(page.getByTestId("bounty-card").first()).toBeVisible();
   });
@@ -232,7 +228,7 @@ test.describe("Bounty application flow", () => {
     // Use CSS :has() to target only <a> elements that contain a bounty card.
     await page.locator("a:has([data-testid='bounty-card'])").first().click();
 
-    await expect(page).toHaveURL(new RegExp(`/bounty/${BOUNTY_ID}`));
+    await expect(page).toHaveURL(`/bounty/${BOUNTY_ID}`, { timeout: 10_000 });
   });
 
   // ── 2. Detail page & dialog trigger ──────────────────────────────────
@@ -251,9 +247,7 @@ test.describe("Bounty application flow", () => {
     await page.goto(`/bounty/${BOUNTY_ID}`);
 
     // Dialog must not be visible before clicking
-    await expect(
-      page.getByTestId("application-dialog"),
-    ).not.toBeVisible();
+    await expect(page.getByTestId("application-dialog")).not.toBeVisible();
 
     await page.getByTestId("apply-to-bounty-btn").click();
 
@@ -271,9 +265,7 @@ test.describe("Bounty application flow", () => {
     await page.getByTestId("submit-application-btn").click();
 
     // zod validation error rendered inside the dialog
-    await expect(
-      page.getByText(/at least 10 characters/i),
-    ).toBeVisible();
+    await expect(page.getByText(/at least 10 characters/i)).toBeVisible();
 
     // Dialog stays open on validation failure
     await expect(page.getByTestId("application-dialog")).toBeVisible();
@@ -286,9 +278,7 @@ test.describe("Bounty application flow", () => {
     await page.getByTestId("cover-letter-input").fill("Short");
     await page.getByTestId("submit-application-btn").click();
 
-    await expect(
-      page.getByText(/at least 10 characters/i),
-    ).toBeVisible();
+    await expect(page.getByText(/at least 10 characters/i)).toBeVisible();
   });
 
   test("rejects an invalid portfolio URL", async ({ page }) => {
@@ -338,15 +328,12 @@ test.describe("Bounty application flow", () => {
     // Dialog must close — this is the success state
     await expect(page.getByTestId("application-dialog")).not.toBeVisible();
 
-    // No uncaught JS errors (ignoring known browser noise and library warnings)
+    // No uncaught JS errors
     const realErrors = consoleErrors.filter(
       (e) =>
         !e.includes("favicon") &&
         !e.includes("net::ERR_") &&
-        !e.includes("chrome-extension") &&
-        // React Query warns when a query returns undefined — expected for
-        // leaderboard queries that resolve against our default null mock.
-        !e.includes("Query data cannot be undefined"),
+        !e.includes("chrome-extension"),
     );
     expect(realErrors).toHaveLength(0);
   });
@@ -369,7 +356,54 @@ test.describe("Bounty application flow", () => {
     await expect(page.getByTestId("application-dialog")).not.toBeVisible();
   });
 
-  // ── 5. UX — form reset ───────────────────────────────────────────────
+  // ── 5. Failed submission ─────────────────────────────────────────────
+
+  test("shows error and keeps dialog open when submission fails", async ({
+    page,
+  }) => {
+    // Override SubmitToBounty to return a GraphQL error
+    await page.route("**/api/graphql", async (route) => {
+      let body: { operationName?: string } = {};
+      try {
+        body = JSON.parse(route.request().postData() ?? "{}") as {
+          operationName?: string;
+        };
+      } catch {
+        // ignore
+      }
+
+      if (body.operationName === "SubmitToBounty") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            errors: [{ message: "Submission failed: server error" }],
+          }),
+        });
+        return;
+      }
+
+      // For all other operations, re-use the base mock routes by continuing
+      await route.fallback();
+    });
+
+    await page.goto(`/bounty/${BOUNTY_ID}`);
+    await page.getByTestId("apply-to-bounty-btn").click();
+    await expect(page.getByTestId("application-dialog")).toBeVisible();
+
+    await page
+      .getByTestId("cover-letter-input")
+      .fill("I have deep zkp experience and can deliver this on time.");
+
+    await page.getByTestId("submit-application-btn").click();
+
+    // Dialog stays open on failure
+    await expect(page.getByTestId("application-dialog")).toBeVisible();
+    // Error message rendered in the form
+    await expect(page.getByTestId("application-error")).toBeVisible();
+  });
+
+  // ── 6. UX — form reset ───────────────────────────────────────────────
 
   test("resets form when dialog is closed and reopened", async ({ page }) => {
     await page.goto(`/bounty/${BOUNTY_ID}`);
@@ -380,8 +414,11 @@ test.describe("Bounty application flow", () => {
       .getByTestId("cover-letter-input")
       .fill("Some text that should be cleared.");
 
-    // Close via Cancel button
-    await page.getByRole("button", { name: /cancel/i }).click();
+    // Close via Cancel button — scoped to the dialog to avoid ambiguity
+    await page
+      .getByTestId("application-dialog")
+      .getByTestId("application-cancel-btn")
+      .click();
     await expect(page.getByTestId("application-dialog")).not.toBeVisible();
 
     // Reopen
