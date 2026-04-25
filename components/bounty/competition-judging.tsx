@@ -14,11 +14,17 @@ import {
   useFinalizeContest,
 } from "@/hooks/use-competition-bounty";
 
+// Stellar assets use 7 decimal places (1 XLM = 10_000_000 stroops).
+// If the platform ever supports assets with different precision, derive
+// this from the currency symbol instead of hardcoding.
+const STELLAR_ASSET_SCALE = 1e7;
+
 interface Submission {
   id: string;
   submittedBy: string;
   submittedByUser?: { name?: string | null; image?: string | null } | null;
   githubPullRequestUrl?: string | null;
+  // "APPROVED" status comes from the backend after approve_contest_winner
   status: string;
 }
 
@@ -26,8 +32,8 @@ interface CompetitionJudgingProps {
   bountyId: string;
   submissions: Submission[];
   isFinalized: boolean;
-  totalReward: number;
-  currency: string;
+  totalReward: number | null | undefined;
+  currency: string | null | undefined;
 }
 
 export function CompetitionJudging({
@@ -43,7 +49,9 @@ export function CompetitionJudging({
 
   const [payouts, setPayouts] = useState<Record<string, string>>({});
   const [points, setPoints] = useState<Record<string, string>>({});
-  const [approved, setApproved] = useState<Set<string>>(new Set());
+  // Optimistic local set — augments backend status for immediate feedback.
+  // On next query invalidation the backend status takes over.
+  const [localApproved, setLocalApproved] = useState<Set<string>>(new Set());
 
   const walletAddress =
     (session?.user as { walletAddress?: string; address?: string } | undefined)
@@ -57,10 +65,14 @@ export function CompetitionJudging({
       toast.error("Connect your wallet to approve.");
       return;
     }
-    const payout = parseFloat(payouts[sub.id] ?? "0");
+    const payout = parseFloat(payouts[sub.id] ?? "");
     const pts = parseInt(points[sub.id] ?? "10", 10);
     if (!isFinite(payout) || payout <= 0) {
-      toast.error("Enter a valid payout amount.");
+      toast.error("Enter a valid payout amount greater than 0.");
+      return;
+    }
+    if (!isFinite(pts) || pts < 0) {
+      toast.error("Reputation points must be a non-negative number.");
       return;
     }
     try {
@@ -68,10 +80,10 @@ export function CompetitionJudging({
         bountyId,
         creatorAddress: walletAddress,
         winner: sub.submittedBy,
-        payoutAmount: BigInt(Math.round(payout * 1e7)),
+        payoutAmount: BigInt(Math.round(payout * STELLAR_ASSET_SCALE)),
         points: pts,
       });
-      setApproved((prev) => new Set(prev).add(sub.id));
+      setLocalApproved((prev) => new Set(prev).add(sub.id));
       toast.success(
         `Payment approved for ${sub.submittedByUser?.name ?? sub.submittedBy}.`,
       );
@@ -108,6 +120,13 @@ export function CompetitionJudging({
     ? approveMutation.variables?.winner
     : null;
 
+  // Any submission approved either by backend status or local optimism
+  const isApproved = (sub: Submission) =>
+    sub.status === "APPROVED" || localApproved.has(sub.id);
+
+  const anyApproved =
+    submissions.some((s) => s.status === "APPROVED") || localApproved.size > 0;
+
   return (
     <div className="p-5 rounded-xl border border-gray-800 bg-background-card space-y-5">
       <div className="flex items-center justify-between">
@@ -122,7 +141,7 @@ export function CompetitionJudging({
 
       <div className="space-y-4">
         {submissions.map((sub, idx) => {
-          const isApproved = approved.has(sub.id);
+          const approved = isApproved(sub);
           const name = sub.submittedByUser?.name ?? sub.submittedBy;
           const isThisPending =
             approveMutation.isPending && pendingWinner === sub.submittedBy;
@@ -131,7 +150,7 @@ export function CompetitionJudging({
             <div
               key={sub.id}
               className={`rounded-lg border p-4 space-y-3 transition-colors ${
-                isApproved
+                approved
                   ? "border-emerald-500/30 bg-emerald-500/5"
                   : "border-gray-700 bg-gray-900/40"
               }`}
@@ -142,17 +161,18 @@ export function CompetitionJudging({
                   <span className="text-sm font-medium text-gray-200">
                     {name}
                   </span>
-                  {isApproved && (
+                  {approved && (
                     <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-[10px]">
                       <CheckCircle2 className="size-3 mr-1" />
                       Approved
                     </Badge>
                   )}
                 </div>
-                {idx === 0 && !isApproved && (
+                {/* "Top" badge only on the first unapproved entry — not a ranking signal */}
+                {idx === 0 && !approved && (
                   <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px]">
                     <Award className="size-3 mr-1" />
-                    Top
+                    First
                   </Badge>
                 )}
               </div>
@@ -168,17 +188,19 @@ export function CompetitionJudging({
                 </a>
               )}
 
-              {!isFinalized && !isApproved && (
+              {!isFinalized && !approved && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-[11px] text-gray-400">
-                      Payout ({currency})
+                      Payout ({currency ?? "XLM"})
                     </Label>
                     <Input
                       type="number"
                       min={0}
-                      max={totalReward}
-                      placeholder={String(totalReward)}
+                      max={totalReward ?? undefined}
+                      placeholder={
+                        totalReward != null ? String(totalReward) : "0"
+                      }
                       value={payouts[sub.id] ?? ""}
                       onChange={(e) =>
                         setPayouts((p) => ({ ...p, [sub.id]: e.target.value }))
@@ -206,7 +228,7 @@ export function CompetitionJudging({
                 </div>
               )}
 
-              {!isFinalized && !isApproved && (
+              {!isFinalized && !approved && (
                 <Button
                   size="sm"
                   className="w-full"
@@ -226,7 +248,7 @@ export function CompetitionJudging({
         })}
       </div>
 
-      {!isFinalized && approved.size > 0 && (
+      {!isFinalized && anyApproved && (
         <>
           <Separator className="bg-gray-800/60" />
           <div className="space-y-2">

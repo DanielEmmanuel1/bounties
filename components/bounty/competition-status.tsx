@@ -1,20 +1,19 @@
 "use client";
 
-"use client";
-
+import { useState, useEffect } from "react";
 import { Users, Clock, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 
 interface CompetitionStatusProps {
+  // NOTE: The backend schema exposes _count.submissions (not a separate
+  // participant/claim count). This reflects submitted entries; contributors
+  // who joined but haven't submitted yet are not counted here. A dedicated
+  // claimCount field on the Bounty type would be needed for an accurate
+  // "joined" figure — tracked in the backend schema backlog.
   participantCount: number;
   maxParticipants?: number | null;
   submissionCount: number;
   deadline: string | null | undefined;
   isFinalized: boolean;
-}
-
-function isAfterDeadline(deadline: string | null | undefined): boolean {
-  if (!deadline) return false;
-  return Date.now() > new Date(deadline).getTime();
 }
 
 export function CompetitionStatus({
@@ -24,7 +23,18 @@ export function CompetitionStatus({
   deadline,
   isFinalized,
 }: CompetitionStatusProps) {
-  const pastDeadline = isAfterDeadline(deadline);
+  // Initialize as null to avoid SSR/client hydration mismatch from Date.now().
+  const [pastDeadline, setPastDeadline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const check = () =>
+      setPastDeadline(
+        deadline ? Date.now() > new Date(deadline).getTime() : false,
+      );
+    check();
+    const id = setInterval(check, 10_000);
+    return () => clearInterval(id);
+  }, [deadline]);
 
   return (
     <div className="rounded-xl border border-gray-800 bg-background-card p-4 space-y-3">
@@ -59,31 +69,33 @@ export function CompetitionStatus({
         </div>
       </div>
 
-      {/* Phase indicator */}
-      <div className="flex items-center gap-2 text-xs">
-        {isFinalized ? (
-          <>
-            <CheckCircle2 className="size-3.5 text-emerald-400 shrink-0" />
-            <span className="text-emerald-400 font-medium">
-              Results published
-            </span>
-          </>
-        ) : pastDeadline ? (
-          <>
-            <Clock className="size-3.5 text-amber-400 shrink-0" />
-            <span className="text-amber-400 font-medium">
-              Judging in progress
-            </span>
-          </>
-        ) : (
-          <>
-            <Clock className="size-3.5 text-blue-400 shrink-0" />
-            <span className="text-blue-400 font-medium">
-              Accepting submissions
-            </span>
-          </>
-        )}
-      </div>
+      {/* Phase indicator — only render once client-side value is known */}
+      {pastDeadline !== null && (
+        <div className="flex items-center gap-2 text-xs">
+          {isFinalized ? (
+            <>
+              <CheckCircle2 className="size-3.5 text-emerald-400 shrink-0" />
+              <span className="text-emerald-400 font-medium">
+                Results published
+              </span>
+            </>
+          ) : pastDeadline ? (
+            <>
+              <Clock className="size-3.5 text-amber-400 shrink-0" />
+              <span className="text-amber-400 font-medium">
+                Judging in progress
+              </span>
+            </>
+          ) : (
+            <>
+              <Clock className="size-3.5 text-blue-400 shrink-0" />
+              <span className="text-blue-400 font-medium">
+                Accepting submissions
+              </span>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

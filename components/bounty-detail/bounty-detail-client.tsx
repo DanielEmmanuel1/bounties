@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,10 +26,21 @@ export function BountyDetailClient({ bountyId }: { bountyId: string }) {
   const { data: session } = authClient.useSession();
   const [cancellationRecord, setCancellationRecord] =
     useState<CancellationRecord | null>(null);
+  const [pastDeadline, setPastDeadline] = useState(false);
 
   const handleCancelled = useCallback((record: CancellationRecord) => {
     setCancellationRecord(record);
   }, []);
+
+  const endDate = bounty?.bountyWindow?.endDate ?? null;
+  useEffect(() => {
+    if (!endDate) return;
+    const check = () =>
+      setPastDeadline(Date.now() > new Date(endDate).getTime());
+    check();
+    const id = setInterval(check, 10_000);
+    return () => clearInterval(id);
+  }, [endDate]);
 
   if (isPending) return <BountyDetailSkeleton />;
 
@@ -88,18 +99,24 @@ export function BountyDetailClient({ bountyId }: { bountyId: string }) {
   const isCreator =
     (session?.user as { id?: string } | undefined)?.id === bounty.createdBy;
   const isFinalized = bounty.status === "COMPLETED";
-  const competitionSubmissions = (
-    (bounty as { submissions?: Array<{
-      id: string;
-      submittedBy: string;
-      submittedByUser?: { name?: string | null; image?: string | null } | null;
-      githubPullRequestUrl?: string | null;
-      status: string;
-    }> }).submissions ?? []
-  );
-  const pastDeadline =
-    bounty.bountyWindow?.endDate != null &&
-    Date.now() > new Date(bounty.bountyWindow.endDate).getTime();
+  // submissions is present on BountyQuery (single-bounty query) but not on
+  // BountyFieldsFragment (list query). The cast is safe here because
+  // useBountyDetail returns BountyFieldsFragment & Partial<BountyQuery["bounty"]>.
+  const competitionSubmissions =
+    (
+      bounty as {
+        submissions?: Array<{
+          id: string;
+          submittedBy: string;
+          submittedByUser?: {
+            name?: string | null;
+            image?: string | null;
+          } | null;
+          githubPullRequestUrl?: string | null;
+          status: string;
+        }> | null;
+      }
+    ).submissions ?? [];
 
   return (
     <div className="flex flex-col lg:flex-row gap-10">

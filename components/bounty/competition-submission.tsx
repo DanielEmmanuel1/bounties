@@ -15,22 +15,6 @@ interface CompetitionSubmissionProps {
   hasJoined: boolean;
 }
 
-function useCountdown(deadline: string | null | undefined) {
-  const [remaining, setRemaining] = useState<number>(() =>
-    deadline ? new Date(deadline).getTime() - Date.now() : -1,
-  );
-
-  useEffect(() => {
-    if (!deadline) return;
-    const id = setInterval(() => {
-      setRemaining(new Date(deadline).getTime() - Date.now());
-    }, 1000);
-    return () => clearInterval(id);
-  }, [deadline]);
-
-  return remaining;
-}
-
 function formatCountdown(ms: number): string {
   if (ms <= 0) return "Deadline passed";
   const s = Math.floor(ms / 1000);
@@ -50,8 +34,21 @@ export function CompetitionSubmission({
   const { data: session } = authClient.useSession();
   const [workCid, setWorkCid] = useState("");
   const submitMutation = useSubmitContestWork();
-  const remaining = useCountdown(deadline);
-  const isPastDeadline = remaining <= 0 && deadline != null;
+
+  // Initialize as null to avoid SSR/client hydration mismatch.
+  // The countdown is set on mount (client-only).
+  const [remaining, setRemaining] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!deadline) return;
+    const tick = () => setRemaining(new Date(deadline).getTime() - Date.now());
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [deadline]);
+
+  const isPastDeadline =
+    remaining !== null && remaining <= 0 && deadline != null;
 
   const walletAddress =
     (session?.user as { walletAddress?: string; address?: string } | undefined)
@@ -88,7 +85,7 @@ export function CompetitionSubmission({
     <div className="p-5 rounded-xl border border-gray-800 bg-background-card space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-200">Your Submission</h3>
-        {deadline && (
+        {deadline && remaining !== null && (
           <span
             className={`flex items-center gap-1.5 text-xs font-medium ${
               isPastDeadline
@@ -126,7 +123,8 @@ export function CompetitionSubmission({
           </div>
 
           <p className="text-[11px] text-gray-500">
-            Your submission is hidden from other participants until the deadline.
+            Your submission is hidden from other participants until the
+            deadline.
           </p>
 
           <Button

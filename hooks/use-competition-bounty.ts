@@ -62,9 +62,8 @@ function toBountyIdBigInt(id: string): bigint {
 }
 
 function resolveContestClient(): ContestContractClient {
-  const client = (
-    globalThis as { __contestContracts?: ContestContractClient }
-  ).__contestContracts;
+  const client = (globalThis as { __contestContracts?: ContestContractClient })
+    .__contestContracts;
   if (!client) {
     throw new ContestError(
       "missing_contract_bindings",
@@ -74,19 +73,10 @@ function resolveContestClient(): ContestContractClient {
   return client;
 }
 
-function patchDetail(
-  prev: BountyQuery | undefined,
-  patch: Record<string, unknown>,
-): BountyQuery | undefined {
-  if (!prev?.bounty) return prev;
-  return {
-    ...prev,
-    bounty: { ...prev.bounty, updatedAt: new Date().toISOString(), ...patch },
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Hook: join competition (claim_bounty for Contest type)
+// NOTE: Does NOT optimistically set status to IN_PROGRESS — competition
+// bounties remain OPEN while multiple participants join.
 // ---------------------------------------------------------------------------
 
 export function useJoinCompetition() {
@@ -106,22 +96,9 @@ export function useJoinCompetition() {
         bountyId: toBountyIdBigInt(bountyId),
       });
     },
-    onMutate: async ({ bountyId }) => {
-      await qc.cancelQueries({ queryKey: bountyKeys.detail(bountyId) });
-      const prev = qc.getQueryData<BountyQuery>(bountyKeys.detail(bountyId));
-      qc.setQueryData<BountyQuery>(
-        bountyKeys.detail(bountyId),
-        patchDetail(prev, { status: "IN_PROGRESS" }),
-      );
-      return { prev, bountyId };
-    },
-    onError: (_e, _v, ctx) => {
-      if (ctx?.prev)
-        qc.setQueryData(bountyKeys.detail(ctx.bountyId), ctx.prev);
-    },
     onSettled: (_r, _e, v) => {
+      // Invalidate to get fresh participant list from backend
       qc.invalidateQueries({ queryKey: bountyKeys.detail(v.bountyId) });
-      qc.invalidateQueries({ queryKey: bountyKeys.lists() });
     },
   });
 }
@@ -217,15 +194,20 @@ export function useFinalizeContest() {
     onMutate: async ({ bountyId }) => {
       await qc.cancelQueries({ queryKey: bountyKeys.detail(bountyId) });
       const prev = qc.getQueryData<BountyQuery>(bountyKeys.detail(bountyId));
-      qc.setQueryData<BountyQuery>(
-        bountyKeys.detail(bountyId),
-        patchDetail(prev, { status: "COMPLETED" }),
-      );
+      if (prev?.bounty) {
+        qc.setQueryData<BountyQuery>(bountyKeys.detail(bountyId), {
+          ...prev,
+          bounty: {
+            ...prev.bounty,
+            status: "COMPLETED",
+            updatedAt: new Date().toISOString(),
+          },
+        });
+      }
       return { prev, bountyId };
     },
     onError: (_e, _v, ctx) => {
-      if (ctx?.prev)
-        qc.setQueryData(bountyKeys.detail(ctx.bountyId), ctx.prev);
+      if (ctx?.prev) qc.setQueryData(bountyKeys.detail(ctx.bountyId), ctx.prev);
     },
     onSettled: (_r, _e, v) => {
       qc.invalidateQueries({ queryKey: bountyKeys.detail(v.bountyId) });
