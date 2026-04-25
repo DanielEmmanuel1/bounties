@@ -23,6 +23,8 @@ export function MilestoneFunnel({
   contributors,
   className,
 }: MilestoneFunnelProps) {
+  if (!milestones.length) return null;
+
   return (
     <div className={cn("w-full py-8 px-4", className)}>
       <div className="relative flex justify-between items-start">
@@ -91,8 +93,8 @@ export function MilestoneFunnel({
                               />
                               <AvatarFallback>
                                 {contributor.userName
-                                  ?.substring(0, 2)
-                                  .toUpperCase() ?? "?"}
+                                  .substring(0, 2)
+                                  .toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
                             <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover/avatar:opacity-100 rounded-full transition-opacity" />

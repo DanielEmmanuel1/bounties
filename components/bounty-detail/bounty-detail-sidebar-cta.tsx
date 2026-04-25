@@ -8,6 +8,7 @@ import {
   AlertCircle,
   XCircle,
   Loader2,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -30,9 +31,7 @@ import { authClient } from "@/lib/auth-client";
 import type { CancellationRecord } from "@/types/escrow";
 import { useCancelBountyDialog } from "@/hooks/use-cancel-bounty-dialog";
 import { ApplicationDialog } from "@/components/bounty/application-dialog";
-import { Users } from "lucide-react";
 import { Bounty } from "@/types/bounty";
-
 interface SidebarCTAProps {
   bounty: BountyFieldsFragment;
   onCancelled?: (record: CancellationRecord) => void;

@@ -44,7 +44,7 @@ export const MOCK_MODEL4_CONTRIBUTORS: ContributorProgress[] = [
     userId: "u2",
     userName: "Bob",
     userAvatarUrl: "https://github.com/vercel.png",
-    currentMilestoneId: "m2",
+    currentMilestoneId: "m3",
   },
   {
     userId: "u3",
@@ -56,6 +56,6 @@ export const MOCK_MODEL4_CONTRIBUTORS: ContributorProgress[] = [
     userId: "u4",
     userName: "David",
     userAvatarUrl: "https://github.com/nutlope.png",
-    currentMilestoneId: "m1",
+    currentMilestoneId: "m4",
   },
 ];

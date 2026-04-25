@@ -18,10 +18,13 @@ export function MilestoneSubmissionCard({
   contributorProgress,
   className,
 }: MilestoneSubmissionCardProps) {
-  // Find current milestone index
-  const currentMilestoneIndex = milestones.findIndex(
+  // Find current milestone index; -1 means finished or stale id
+  const currentIdx = milestones.findIndex(
     (m) => m.id === contributorProgress.currentMilestoneId,
   );
+  // When -1 treat contributor as past the last milestone
+  const safeCurrentIndex = currentIdx === -1 ? milestones.length : currentIdx;
+  const displayPosition = Math.min(safeCurrentIndex + 1, milestones.length);
 
   return (
     <Card
@@ -34,7 +37,7 @@ export function MilestoneSubmissionCard({
         <CardTitle className="text-lg font-bold flex items-center gap-2">
           Your Progress
           <span className="text-xs font-normal text-muted-foreground ml-auto">
-            {currentMilestoneIndex + 1} of {milestones.length} Milestones
+            {displayPosition} of {milestones.length} Milestones
           </span>
         </CardTitle>
       </CardHeader>
@@ -42,9 +45,10 @@ export function MilestoneSubmissionCard({
         <div className="space-y-4">
           {milestones.map((milestone, index) => {
             const isCompleted =
-              index < currentMilestoneIndex || milestone.isCompleted;
-            const isCurrent = index === currentMilestoneIndex;
-            const isLocked = index > currentMilestoneIndex;
+              milestone.isCompleted || index < safeCurrentIndex;
+            const isCurrent = index === safeCurrentIndex;
+            // A milestone that is already completed is never locked
+            const isLocked = !isCompleted && index > safeCurrentIndex;
 
             return (
               <div
@@ -72,7 +76,7 @@ export function MilestoneSubmissionCard({
                     isCompleted
                       ? "bg-primary border-primary text-primary-foreground"
                       : isCurrent
-                        ? "bg-background border-primary text-primary shadow-[0_0_10px_rgba(var(--primary),0.3)]"
+                        ? "bg-background border-primary text-primary shadow-[0_0_10px_rgba(167,249,80,0.3)]"
                         : "bg-background border-gray-800 text-gray-600",
                   )}
                 >

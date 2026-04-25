@@ -27,6 +27,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MilestoneSubmissionCard } from "./milestone-submission-card";
 import { Model4MaintainerDashboard } from "./model4-maintainer-dashboard";
 
+/** Typed adapter: centralises the unsafe cast and applies mock fallbacks. */
+function getMilestoneData(bounty: unknown): {
+  milestones: import("@/types/bounty").Milestone[];
+  contributorProgress: import("@/types/bounty").ContributorProgress[];
+} {
+  const b = bounty as Bounty;
+  return {
+    milestones: b.milestones ?? MOCK_MODEL4_MILESTONES,
+    contributorProgress: b.contributorProgress ?? MOCK_MODEL4_CONTRIBUTORS,
+  };
+}
+
 export function BountyDetailClient({ bountyId }: { bountyId: string }) {
   const router = useRouter();
   const { data: bounty, isPending, isError, error } = useBountyDetail(bountyId);
@@ -112,45 +124,35 @@ export function BountyDetailClient({ bountyId }: { bountyId: string }) {
             </CardHeader>
             <CardContent className="pt-6">
               <MilestoneFunnel
-                milestones={
-                  (bounty as unknown as Bounty).milestones ||
-                  MOCK_MODEL4_MILESTONES
-                }
-                contributors={
-                  (bounty as unknown as Bounty).contributorProgress ||
-                  MOCK_MODEL4_CONTRIBUTORS
-                }
+                milestones={getMilestoneData(bounty).milestones}
+                contributors={getMilestoneData(bounty).contributorProgress}
               />
             </CardContent>
           </Card>
         )}
 
-        {bounty.type === "MULTI_WINNER_MILESTONE" && session?.user?.id && (
-          <MilestoneSubmissionCard
-            milestones={
-              (bounty as unknown as Bounty).milestones || MOCK_MODEL4_MILESTONES
-            }
-            contributorProgress={
-              (
-                (bounty as unknown as Bounty).contributorProgress ||
-                MOCK_MODEL4_CONTRIBUTORS
-              ).find((c) => c.userId === session.user.id) ||
-              MOCK_MODEL4_CONTRIBUTORS[0] // Fallback to Alice for demo
-            }
-          />
-        )}
+        {bounty.type === "MULTI_WINNER_MILESTONE" &&
+          session?.user?.id &&
+          (() => {
+            const { milestones, contributorProgress } =
+              getMilestoneData(bounty);
+            const myProgress = contributorProgress.find(
+              (c) => c.userId === session.user.id,
+            );
+            if (!myProgress) return null;
+            return (
+              <MilestoneSubmissionCard
+                milestones={milestones}
+                contributorProgress={myProgress}
+              />
+            );
+          })()}
 
         {bounty.type === "MULTI_WINNER_MILESTONE" &&
           session?.user?.id === bounty.createdBy && (
             <Model4MaintainerDashboard
-              milestones={
-                (bounty as unknown as Bounty).milestones ||
-                MOCK_MODEL4_MILESTONES
-              }
-              contributors={
-                (bounty as unknown as Bounty).contributorProgress ||
-                MOCK_MODEL4_CONTRIBUTORS
-              }
+              milestones={getMilestoneData(bounty).milestones}
+              contributors={getMilestoneData(bounty).contributorProgress}
             />
           )}
 

@@ -7,6 +7,12 @@ import { Milestone, ContributorProgress } from "@/types/bounty";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Trophy,
   ArrowRight,
   MessageSquare,
@@ -17,12 +23,14 @@ import {
 interface Model4MaintainerDashboardProps {
   milestones: Milestone[];
   contributors: ContributorProgress[];
+  maxSlots?: number;
   className?: string;
 }
 
 export function Model4MaintainerDashboard({
   milestones,
   contributors,
+  maxSlots = 5,
   className,
 }: Model4MaintainerDashboardProps) {
   return (
@@ -50,7 +58,15 @@ export function Model4MaintainerDashboard({
               (m) => m.id === contributor.currentMilestoneId,
             );
             const progressPercentage =
-              ((currentMilestoneIndex + 1) / milestones.length) * 100;
+              milestones.length === 0
+                ? 0
+                : Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      ((currentMilestoneIndex + 1) / milestones.length) * 100,
+                    ),
+                  );
 
             return (
               <div
@@ -93,42 +109,77 @@ export function Model4MaintainerDashboard({
                     </div>
                     <div className="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.4)] transition-all duration-500"
+                        className="h-full bg-primary shadow-[0_0_8px_rgba(167,249,80,0.4)] transition-all duration-500"
                         style={{ width: `${progressPercentage}%` }}
                       />
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-gray-400 hover:text-white"
-                    >
-                      <MessageSquare className="size-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs border-gray-700 hover:bg-gray-800"
-                    >
-                      View Submissions
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 font-bold"
-                    >
-                      <Coins className="size-3 mr-1.5" /> Release Payment
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="h-8 text-xs font-bold"
-                    >
-                      Advance <ArrowRight className="size-3 ml-1.5" />
-                    </Button>
-                  </div>
+                  {/* Actions — backend not yet integrated; marked disabled until wired up */}
+                  <TooltipProvider>
+                    <div className="flex items-center gap-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="text-gray-400 hover:text-white"
+                              disabled
+                            >
+                              <MessageSquare className="size-4" />
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>Coming soon</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs border-gray-700 hover:bg-gray-800"
+                              disabled
+                            >
+                              View Submissions
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>Coming soon</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Button
+                              size="sm"
+                              className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 font-bold"
+                              disabled
+                            >
+                              <Coins className="size-3 mr-1.5" /> Release
+                              Payment
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>Coming soon</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 text-xs font-bold"
+                              disabled
+                            >
+                              Advance <ArrowRight className="size-3 ml-1.5" />
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>Coming soon</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </TooltipProvider>
                 </div>
               </div>
             );
@@ -139,15 +190,27 @@ export function Model4MaintainerDashboard({
         <div className="p-3 bg-primary/5 border-t border-gray-800/50 flex items-center justify-center gap-4">
           <div className="flex items-center gap-1.5 text-[10px] text-gray-400 font-medium">
             <Trophy className="size-3 text-yellow-500" />
-            <span>Total Winners Allowed: {contributors.length} / 5</span>
+            <span>
+              Total Winners Allowed: {contributors.length} / {maxSlots}
+            </span>
           </div>
           <div className="h-3 w-px bg-gray-800" />
-          <Button
-            variant="link"
-            className="text-[10px] h-auto p-0 text-primary"
-          >
-            View All Applications <ChevronRight className="size-3" />
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    variant="link"
+                    className="text-[10px] h-auto p-0 text-primary"
+                    disabled
+                  >
+                    View All Applications <ChevronRight className="size-3" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Coming soon</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </CardContent>
     </Card>
