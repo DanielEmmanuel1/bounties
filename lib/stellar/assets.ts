@@ -94,6 +94,10 @@ export async function fetchAssetPricesUsd(): Promise<Record<string, number>> {
 export async function fetchAllAssetBalances(
   walletContractId: string,
 ): Promise<WalletAsset[]> {
+  if (!SMART_WALLET_CONFIG.rpcUrl) {
+    throw new Error("[stellar] RPC URL not configured");
+  }
+
   const [prices, supportedAssets] = await Promise.all([
     fetchAssetPricesUsd(),
     Promise.resolve(getSupportedAssets()),
