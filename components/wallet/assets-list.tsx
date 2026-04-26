@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { WalletAsset } from "@/types/wallet";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,19 +16,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { getSupportedAssets, fetchAssetBalance } from "@/lib/stellar/assets";
+import { walletKeys } from "@/hooks/use-wallet-data";
 import { toast } from "sonner";
 
 interface AssetsListProps {
   assets: WalletAsset[];
   walletAddress?: string | null;
-  onAssetsChange?: (updated: WalletAsset[]) => void;
 }
 
-export function AssetsList({
-  assets,
-  walletAddress,
-  onAssetsChange,
-}: AssetsListProps) {
+export function AssetsList({ assets, walletAddress }: AssetsListProps) {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [hideSmallBalances, setHideSmallBalances] = useState(false);
   const [sortConfig, setSortConfig] = useState<{
@@ -57,21 +55,13 @@ export function AssetsList({
 
     setAddingAsset(assetId);
     try {
-      const balance = await fetchAssetBalance(walletAddress, supported.asset);
-      const newAsset: WalletAsset = {
-        id: supported.id,
-        tokenSymbol: supported.symbol,
-        tokenName: supported.name,
-        amount: balance,
-        usdValue: 0,
-      };
-      const updated = [
-        ...assets.filter((a) => a.tokenSymbol !== supported.symbol),
-        newAsset,
-      ];
-      onAssetsChange?.(updated);
+      await fetchAssetBalance(walletAddress, supported.asset);
+      await queryClient.invalidateQueries({
+        queryKey: walletKeys.assets(walletAddress),
+      });
       toast.success(`${supported.symbol} added to your tracked assets`);
-    } catch {
+    } catch (err) {
+      console.error("[stellar] handleAddTrustline failed:", err);
       toast.error(`Failed to add ${supported.symbol}`);
     } finally {
       setAddingAsset(null);

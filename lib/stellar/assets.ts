@@ -67,7 +67,8 @@ export async function fetchAssetBalance(
       return Number(result.balanceEntry.amount) / STROOPS_PER_UNIT;
     }
     return 0;
-  } catch {
+  } catch (err) {
+    console.error("[stellar] fetchAssetBalance failed:", err);
     return 0;
   }
 }

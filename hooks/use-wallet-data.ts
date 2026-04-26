@@ -82,8 +82,8 @@ async function fetchEscrowSummary(
       const totalLocked = xlmUnits * (prices["XLM"] ?? 0.12);
       return { totalLocked, entries: [] };
     }
-  } catch {
-    // Contract may not expose this key — return empty gracefully
+  } catch (err) {
+    console.error("[stellar] fetchEscrowSummary failed:", err);
   }
 
   return { totalLocked: 0, entries: [] };

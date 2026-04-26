@@ -63,7 +63,8 @@ export async function fetchAccountTransactions(
         };
       })
       .filter((tx) => tx.amount > 0);
-  } catch {
+  } catch (err) {
+    console.error("[stellar] fetchAccountTransactions failed:", err);
     return [];
   }
 }
