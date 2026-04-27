@@ -168,19 +168,17 @@ async function setupMocks(page: Page) {
     }
   });
 
-  await page
-    .context()
-    .addCookies([
-      {
-        name: "boundless_auth.session_token",
-        value: "fake-e2e-token",
-        domain: "localhost",
-        path: "/",
-        httpOnly: false,
-        secure: false,
-        sameSite: "Lax",
-      },
-    ]);
+  await page.context().addCookies([
+    {
+      name: "boundless_auth.session_token",
+      value: "fake-e2e-token",
+      domain: "localhost",
+      path: "/",
+      httpOnly: false,
+      secure: false,
+      sameSite: "Lax",
+    },
+  ]);
 }
 
 test.describe("Bounty application flow", () => {
@@ -224,10 +222,14 @@ test.describe("Bounty application flow", () => {
     page,
   }) => {
     await page.goto(`/bounty/${BOUNTY_ID}`);
-    await page
+    const btn = page
       .locator('[data-testid="apply-to-bounty-btn"]:visible')
-      .first()
-      .click();
+      .first();
+    // Wait for the session to resolve so the button enables — without this,
+    // the click can fire before walletAddress is populated and handleJoin
+    // returns early before reaching claimBounty().
+    await expect(btn).toBeEnabled();
+    await btn.click();
     // Assert the join contract path is actually invoked.
     await expect
       .poll(
@@ -260,10 +262,11 @@ test.describe("Bounty application flow", () => {
     });
 
     await page.goto(`/bounty/${BOUNTY_ID}`);
-    await page
+    const btn = page
       .locator('[data-testid="apply-to-bounty-btn"]:visible')
-      .first()
-      .click();
+      .first();
+    await expect(btn).toBeEnabled();
+    await btn.click();
     // On failure the button must NOT transition to "Joined"
     await expect(
       page.locator('[data-testid="apply-to-bounty-btn"]:visible').first(),
