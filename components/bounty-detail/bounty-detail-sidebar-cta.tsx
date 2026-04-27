@@ -386,11 +386,7 @@ export function MobileCTA({ bounty, onCancelled }: MobileCTAProps) {
             bountyTitle={bounty.title}
             onApply={applyToBounty}
             trigger={
-              <Button
-                data-testid="apply-to-bounty-btn-mobile"
-                className="flex-1 h-11 font-bold tracking-wide"
-                size="lg"
-              >
+              <Button className="flex-1 h-11 font-bold tracking-wide" size="lg">
                 {label()}
               </Button>
             }
