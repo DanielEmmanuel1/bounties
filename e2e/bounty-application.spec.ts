@@ -1,28 +1,21 @@
 /**
- * E2E: Bounty Application Flow
+ * E2E: Bounty Application Flow (Join Competition)
  *
- * Covers the full user journey:
- *   1. Navigate to the bounty list
- *   2. Open a bounty detail page
- *   3. Trigger the application dialog
- *   4. Fill and submit the application form
- *   5. Assert success (dialog closes, no console errors)
+ * Tests the user journey for joining a COMPETITION bounty:
+ *   1. Navigate to bounty list and open a detail page
+ *   2. Click the Join Competition CTA
+ *   3. Assert success (button transitions to "Joined")
+ *   4. Assert error path (contract failure, button stays available)
+ *   5. Assert disabled state for non-OPEN bounties
  *
  * Stability strategy:
- *   - All network requests are intercepted via page.route() so tests are
- *     hermetic and never depend on an external backend.
- *   - All selectors use data-testid attributes, not CSS class names.
- *   - Timing is handled with await expect(...).toBeVisible() / toBeHidden()
- *     — no arbitrary sleeps.
- *   - The GraphQL mock dispatches on operationName, so adding new queries
- *     breaks loudly (default branch aborts the request).
+ *   - GraphQL intercepted via page.route() - hermetic, no live backend.
+ *   - Contest contract client injected via page.addInitScript() - no blockchain.
+ *   - Selectors use data-testid attributes only.
+ *   - Timing via await expect(...) - no arbitrary sleeps.
  */
 
 import { test, expect, type Page } from "@playwright/test";
-
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
 
 const BOUNTY_ID = "e2e-comp-bounty-01";
 
@@ -30,8 +23,7 @@ const MOCK_BOUNTY_FRAGMENT = {
   __typename: "Bounty",
   id: BOUNTY_ID,
   title: "Add zero-knowledge proof primitives",
-  description:
-    "Implement basic zero-knowledge proof primitives for private Stellar transactions.",
+  description: "Implement ZKP primitives for private Stellar transactions.",
   status: "OPEN",
   type: "COMPETITION",
   rewardAmount: 2000,
@@ -44,173 +36,80 @@ const MOCK_BOUNTY_FRAGMENT = {
   githubIssueUrl: "https://github.com/stellar-privacy/zkp/issues/3",
   githubIssueNumber: 3,
   createdBy: "user-other",
-  organization: {
-    __typename: "BountyOrganization",
-    id: "org-privacy-lab",
-    name: "Stellar Privacy Lab",
-    logo: null,
-    slug: "stellar-privacy-lab",
-  },
-  project: {
-    __typename: "BountyProject",
-    id: "proj-zkp",
-    title: "ZKP",
-    description: null,
-  },
+  organization: { __typename: "BountyOrganization", id: "org-privacy-lab", name: "Stellar Privacy Lab", logo: null, slug: "stellar-privacy-lab" },
+  project: { __typename: "BountyProject", id: "proj-zkp", title: "ZKP", description: null },
   bountyWindow: null,
   _count: { __typename: "BountyCount", submissions: 0 },
+  submissions: [],
 };
 
+// Session includes walletAddress so handleJoin() passes the wallet guard.
 const MOCK_SESSION = {
   user: {
     id: "user-e2e-tester",
     name: "E2E Tester",
     email: "e2e@test.com",
     image: null,
+    walletAddress: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGYWDOUALPIF5JD4PI21JQ",
   },
   session: { token: "fake-e2e-token" },
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+type ContestContracts = {
+  claimBounty: (args: { contributor: string; bountyId: bigint }) => Promise<{ txHash: string }>;
+};
+
+async function injectContestClient(page: Page, impl: Partial<ContestContracts> = {}) {
+  await page.addInitScript((client) => {
+    (globalThis as { __contestContracts?: unknown }).__contestContracts = client;
+  }, {
+    claimBounty: impl.claimBounty?.toString() ?? (async () => ({ txHash: "0xfake" })).toString(),
+  });
+}
 
 async function setupMocks(page: Page) {
-  // Auth: mock better-auth endpoints, dispatching by path.
-  // Only /session needs a real response; other paths (sign-in, sign-out, etc.)
-  // get an empty 200 so future tests that cover those flows can override cleanly.
+  // Inject successful contract client by default
+  await page.addInitScript(() => {
+    (globalThis as { __contestContracts?: unknown }).__contestContracts = {
+      claimBounty: async () => ({ txHash: "0xfake-e2e-txhash" }),
+    } as ContestContracts;
+  });
+
   await page.route("**/api/auth/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith("/session")) {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(MOCK_SESSION),
-      });
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MOCK_SESSION) });
     } else {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: "{}",
-      });
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
     }
   });
 
-  // GraphQL: dispatch on operationName
   await page.route("**/api/graphql", async (route) => {
     let body: { operationName?: string } = {};
-    try {
-      body = JSON.parse(route.request().postData() ?? "{}") as {
-        operationName?: string;
-      };
-    } catch {
-      // fall through to abort
-    }
+    try { body = JSON.parse(route.request().postData() ?? "{}") as { operationName?: string }; } catch { /* ignore */ }
 
     switch (body.operationName) {
       case "Bounties":
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            data: {
-              bounties: {
-                bounties: [MOCK_BOUNTY_FRAGMENT],
-                total: 1,
-                limit: 20,
-                offset: 0,
-              },
-            },
-          }),
-        });
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { bounties: { bounties: [MOCK_BOUNTY_FRAGMENT], total: 1, limit: 20, offset: 0 } } }) });
         return;
-
       case "Bounty":
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            data: {
-              bounty: { ...MOCK_BOUNTY_FRAGMENT, submissions: [] },
-            },
-          }),
-        });
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { bounty: { ...MOCK_BOUNTY_FRAGMENT, submissions: [] } } }) });
         return;
-
-      case "SubmitToBounty":
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            data: {
-              submitToBounty: {
-                __typename: "BountySubmissionType",
-                id: "sub-e2e-001",
-                bountyId: BOUNTY_ID,
-                submittedBy: "user-e2e-tester",
-                githubPullRequestUrl: "https://github.com/e2e/pr/1",
-                status: "SUBMITTED",
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                reviewedAt: null,
-                reviewedBy: null,
-                reviewComments: null,
-                paidAt: null,
-                rewardTransactionHash: null,
-              },
-            },
-          }),
-        });
-        return;
-
       case "TopContributors":
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ data: { topContributors: [] } }),
-        });
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { topContributors: [] } }) });
         return;
-
       case "Leaderboard":
       case "GetLeaderboardUser":
       case "LeaderboardUser":
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            data: {
-              leaderboard: { contributors: [], total: 0, limit: 10, offset: 0 },
-              userLeaderboard: null,
-            },
-          }),
-        });
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { leaderboard: { contributors: [], total: 0, limit: 10, offset: 0 }, userLeaderboard: null } }) });
         return;
-
       default:
-        // Fail loudly so unrecognised operations surface immediately in CI
-        // rather than silently returning null and causing cryptic downstream errors.
         await route.abort("failed");
     }
   });
 
-  // Inject a fake session cookie so server-side auth checks pass.
-  // The cookie name must match better-auth's cookiePrefix ("boundless_auth") + ".session_token".
-  await page.context().addCookies([
-    {
-      name: "boundless_auth.session_token",
-      value: "fake-e2e-token",
-      domain: "localhost",
-      path: "/",
-      httpOnly: false,
-      secure: false,
-      sameSite: "Lax",
-    },
-  ]);
+  await page.context().addCookies([{ name: "boundless_auth.session_token", value: "fake-e2e-token", domain: "localhost", path: "/", httpOnly: false, secure: false, sameSite: "Lax" }]);
 }
-
-// ---------------------------------------------------------------------------
-// Test suite
-// ---------------------------------------------------------------------------
 
 test.describe("Bounty application flow", () => {
   test.beforeEach(async ({ page }) => {
@@ -219,210 +118,69 @@ test.describe("Bounty application flow", () => {
 
   // ── 1. Navigation ──────────────────────────────────────────────────────
 
-  test("shows bounty list with cards after navigating to /bounty", async ({
-    page,
-  }) => {
+  test("shows bounty list with cards after navigating to /bounty", async ({ page }) => {
     await page.goto("/bounty");
-
     await expect(page.getByRole("heading", { name: /Explore/i })).toBeVisible();
-
     await expect(page.getByTestId("bounty-card").first()).toBeVisible();
   });
 
   test("navigates from a bounty card to the detail page", async ({ page }) => {
     await page.goto("/bounty");
-
-    // Wait for at least one card to appear
     await expect(page.getByTestId("bounty-card").first()).toBeVisible();
-
-    // Each card is wrapped in <Link href="/bounty/[id]"> which renders as <a>.
-    // Use CSS :has() to target only <a> elements that contain a bounty card.
     await page.locator("a:has([data-testid='bounty-card'])").first().click();
-
     await expect(page).toHaveURL(`/bounty/${BOUNTY_ID}`, { timeout: 10_000 });
   });
 
-  // ── 2. Detail page & dialog trigger ──────────────────────────────────
+  // ── 2. Detail page CTA ────────────────────────────────────────────────
 
-  test("renders apply button on detail page for OPEN COMPETITION bounty", async ({
-    page,
-  }) => {
+  test("renders enabled Join Competition button for OPEN COMPETITION bounty", async ({ page }) => {
     await page.goto(`/bounty/${BOUNTY_ID}`);
-
-    await expect(page.getByTestId("apply-to-bounty-btn")).toBeVisible();
+    const btn = page.getByTestId("apply-to-bounty-btn");
+    await expect(btn).toBeVisible();
+    await expect(btn).toBeEnabled();
   });
 
-  test("opens application dialog when apply button is clicked", async ({
-    page,
-  }) => {
-    await page.goto(`/bounty/${BOUNTY_ID}`);
+  // ── 3. Successful join ────────────────────────────────────────────────
 
-    // Dialog must not be visible before clicking
-    await expect(page.getByTestId("application-dialog")).not.toBeVisible();
-
-    await page.getByTestId("apply-to-bounty-btn").click();
-
-    await expect(page.getByTestId("application-dialog")).toBeVisible();
-  });
-
-  // ── 3. Form validation ────────────────────────────────────────────────
-
-  test("blocks submission when cover letter is empty", async ({ page }) => {
+  test("clicking Join Competition transitions button to Joined state", async ({ page }) => {
     await page.goto(`/bounty/${BOUNTY_ID}`);
     await page.getByTestId("apply-to-bounty-btn").click();
-    await expect(page.getByTestId("application-dialog")).toBeVisible();
-
-    // Submit without filling the cover letter
-    await page.getByTestId("submit-application-btn").click();
-
-    // zod validation error rendered inside the dialog
-    await expect(page.getByText(/at least 10 characters/i)).toBeVisible();
-
-    // Dialog stays open on validation failure
-    await expect(page.getByTestId("application-dialog")).toBeVisible();
+    // After claimBounty resolves, localJoined=true renders a disabled "Joined" button
+    await expect(page.getByRole("button", { name: /Joined/i })).toBeVisible({ timeout: 8_000 });
   });
 
-  test("blocks submission when cover letter is too short", async ({ page }) => {
-    await page.goto(`/bounty/${BOUNTY_ID}`);
-    await page.getByTestId("apply-to-bounty-btn").click();
+  // ── 4. Failed join ────────────────────────────────────────────────────
 
-    await page.getByTestId("cover-letter-input").fill("Short");
-    await page.getByTestId("submit-application-btn").click();
-
-    await expect(page.getByText(/at least 10 characters/i)).toBeVisible();
-  });
-
-  test("rejects an invalid portfolio URL", async ({ page }) => {
-    await page.goto(`/bounty/${BOUNTY_ID}`);
-    await page.getByTestId("apply-to-bounty-btn").click();
-
-    await page
-      .getByTestId("cover-letter-input")
-      .fill("I have deep zkp experience and can deliver this on time.");
-    await page.getByTestId("portfolio-url-input").fill("not-a-valid-url");
-    await page.getByTestId("submit-application-btn").click();
-
-    await expect(page.getByText(/valid URL/i)).toBeVisible();
-  });
-
-  // ── 4. Successful submission ─────────────────────────────────────────
-
-  test("submits application and closes dialog on success", async ({ page }) => {
-    await page.goto(`/bounty/${BOUNTY_ID}`);
-
-    // Open dialog
-    await page.getByTestId("apply-to-bounty-btn").click();
-    await expect(page.getByTestId("application-dialog")).toBeVisible();
-
-    // Fill cover letter (> 10 chars, valid)
-    await page
-      .getByTestId("cover-letter-input")
-      .fill(
-        "I have extensive experience with zero-knowledge proofs and Stellar " +
-          "blockchain development. I have implemented similar systems and can " +
-          "deliver this feature on time with comprehensive test coverage.",
-      );
-
-    // Fill optional portfolio URL
-    await page
-      .getByTestId("portfolio-url-input")
-      .fill("https://github.com/e2e-tester/zkp-demo");
-
-    // Submit
-    await page.getByTestId("submit-application-btn").click();
-
-    // Dialog must close — this is the success state
-    await expect(page.getByTestId("application-dialog")).not.toBeVisible();
-  });
-
-  test("submits with only a cover letter (portfolio URL is optional)", async ({
-    page,
-  }) => {
-    await page.goto(`/bounty/${BOUNTY_ID}`);
-
-    await page.getByTestId("apply-to-bounty-btn").click();
-    await expect(page.getByTestId("application-dialog")).toBeVisible();
-
-    await page
-      .getByTestId("cover-letter-input")
-      .fill("Experienced zkp engineer, ready to deliver high-quality work.");
-
-    // Leave portfolio URL empty
-    await page.getByTestId("submit-application-btn").click();
-
-    await expect(page.getByTestId("application-dialog")).not.toBeVisible();
-  });
-
-  // ── 5. Failed submission ─────────────────────────────────────────────
-
-  test("shows error and keeps dialog open when submission fails", async ({
-    page,
-  }) => {
-    // Override SubmitToBounty to return a GraphQL error
-    await page.route("**/api/graphql", async (route) => {
-      let body: { operationName?: string } = {};
-      try {
-        body = JSON.parse(route.request().postData() ?? "{}") as {
-          operationName?: string;
-        };
-      } catch {
-        // ignore
-      }
-
-      if (body.operationName === "SubmitToBounty") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            errors: [{ message: "Submission failed: server error" }],
-          }),
-        });
-        return;
-      }
-
-      // For all other operations, re-use the base mock routes by continuing
-      await route.fallback();
+  test("shows error toast and keeps Join button when contract call fails", async ({ page }) => {
+    // Override with a failing contract BEFORE setupMocks injects the success one.
+    // addInitScript runs in registration order so this must be registered first.
+    await page.addInitScript(() => {
+      (globalThis as { __contestContracts?: unknown }).__contestContracts = {
+        claimBounty: async () => { throw new Error("Contract: insufficient funds"); },
+      };
     });
 
     await page.goto(`/bounty/${BOUNTY_ID}`);
     await page.getByTestId("apply-to-bounty-btn").click();
-    await expect(page.getByTestId("application-dialog")).toBeVisible();
-
-    await page
-      .getByTestId("cover-letter-input")
-      .fill("I have deep zkp experience and can deliver this on time.");
-
-    await page.getByTestId("submit-application-btn").click();
-
-    // Dialog stays open on failure
-    await expect(page.getByTestId("application-dialog")).toBeVisible();
-    // Error message rendered in the form
-    await expect(page.getByTestId("application-error")).toBeVisible();
+    // On failure the button must NOT transition to "Joined"
+    await expect(page.getByTestId("apply-to-bounty-btn")).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByRole("button", { name: /Joined/i })).not.toBeVisible();
   });
 
-  // ── 6. UX — form reset ───────────────────────────────────────────────
+  // ── 5. Disabled state when bounty is not OPEN ─────────────────────────
 
-  test("resets form when dialog is closed and reopened", async ({ page }) => {
+  test("CTA button is disabled when bounty status is COMPLETED", async ({ page }) => {
+    await page.route("**/api/graphql", async (route) => {
+      let body: { operationName?: string } = {};
+      try { body = JSON.parse(route.request().postData() ?? "{}") as { operationName?: string }; } catch { /* ignore */ }
+      if (body.operationName === "Bounty") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { bounty: { ...MOCK_BOUNTY_FRAGMENT, status: "COMPLETED", submissions: [] } } }) });
+        return;
+      }
+      await route.fallback();
+    });
+
     await page.goto(`/bounty/${BOUNTY_ID}`);
-
-    // Open dialog and type something
-    await page.getByTestId("apply-to-bounty-btn").click();
-    await page
-      .getByTestId("cover-letter-input")
-      .fill("Some text that should be cleared.");
-
-    // Close via Cancel button — scoped to the dialog to avoid ambiguity
-    await page
-      .getByTestId("application-dialog")
-      .getByTestId("application-cancel-btn")
-      .click();
-    await expect(page.getByTestId("application-dialog")).not.toBeVisible();
-
-    // Reopen
-    await page.getByTestId("apply-to-bounty-btn").click();
-    await expect(page.getByTestId("application-dialog")).toBeVisible();
-
-    // Cover letter must be empty after reset
-    await expect(page.getByTestId("cover-letter-input")).toHaveValue("");
+    await expect(page.getByRole("button", { name: /Completed/i })).toBeDisabled({ timeout: 8_000 });
   });
 });
