@@ -59,14 +59,6 @@ type ContestContracts = {
   claimBounty: (args: { contributor: string; bountyId: bigint }) => Promise<{ txHash: string }>;
 };
 
-async function injectContestClient(page: Page, impl: Partial<ContestContracts> = {}) {
-  await page.addInitScript((client) => {
-    (globalThis as { __contestContracts?: unknown }).__contestContracts = client;
-  }, {
-    claimBounty: impl.claimBounty?.toString() ?? (async () => ({ txHash: "0xfake" })).toString(),
-  });
-}
-
 async function setupMocks(page: Page) {
   // Inject successful contract client by default
   await page.addInitScript(() => {
@@ -152,8 +144,10 @@ test.describe("Bounty application flow", () => {
   // ── 4. Failed join ────────────────────────────────────────────────────
 
   test("shows error toast and keeps Join button when contract call fails", async ({ page }) => {
-    // Override with a failing contract BEFORE setupMocks injects the success one.
-    // addInitScript runs in registration order so this must be registered first.
+    // Override the success client injected by setupMocks. Playwright runs
+    // page.addInitScript scripts in registration order on each navigation,
+    // so this test-level script is registered after setupMocks and overwrites
+    // globalThis.__contestContracts with a failing claimBounty implementation.
     await page.addInitScript(() => {
       (globalThis as { __contestContracts?: unknown }).__contestContracts = {
         claimBounty: async () => { throw new Error("Contract: insufficient funds"); },
